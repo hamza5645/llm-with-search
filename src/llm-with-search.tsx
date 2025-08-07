@@ -1,4 +1,13 @@
-import { Action, ActionPanel, Detail, Form, LaunchProps, Toast, getPreferenceValues, showToast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Detail,
+  Form,
+  LaunchProps,
+  Toast,
+  getPreferenceValues,
+  showToast,
+} from "@raycast/api";
 import React from "react";
 import searchTool from "./tools/search";
 
@@ -18,7 +27,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
   const [useWeb, setUseWeb] = React.useState(true);
   const [isRunning, setIsRunning] = React.useState(false);
   const [answer, setAnswer] = React.useState<string>("");
-  const [context, setContext] = React.useState<string>("");
+  // remove context state to satisfy linter; not shown in UI anymore
 
   async function run() {
     if (isRunning) return;
@@ -48,17 +57,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
         }
       }
 
-      const system = [
-        "You are Llama 3.2 with web-search augmentation.",
-        "Cite sources with [n] references if web context is present.",
-        "Prefer concise, accurate answers.",
-      ].join("\n");
-
-      const promptParts = [
-        system,
-        webContext ? `\nWeb results (use as context; cite as [n]):\n${webContext}\n` : "",
-        `User question: ${query}`,
-      ];
+      const promptParts = [webContext ? `${webContext}\n` : "", query];
 
       // Call local Ollama
       const { ollamaBaseUrl = "http://localhost:11434", ollamaModel = "llama3.2:latest" } =
@@ -79,7 +78,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
       }
       const json = (await res.json()) as { response?: string };
       setAnswer((json.response ?? "").trim());
-      setContext(webContext);
+      // no-op: sources are not displayed
     } catch (error: unknown) {
       await showToast({ style: Toast.Style.Failure, title: "Failed", message: `${error}` });
     } finally {
@@ -91,10 +90,9 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
     return (
       <AnswerDetail
         answer={answer}
-        context={context}
         onAskAnother={() => {
           setAnswer("");
-          setContext("");
+          // reset
         }}
       />
     );
@@ -104,21 +102,21 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
     <Form
       actions={
         <ActionPanel>
-          <Action.SubmitForm title={isRunning ? "Running…" : "Ask Llama"} onSubmit={run} />
+          <Action.SubmitForm
+            title={isRunning ? "Running…" : "Ask Llama"}
+            onSubmit={run}
+          />
         </ActionPanel>
       }
     >
-      <Form.TextArea id="query" title="Question" placeholder="Ask anything..." value={query} onChange={setQuery} />
+      <Form.TextField id="query" title="Question" placeholder="Ask anything..." value={query} onChange={setQuery} />
       <Form.Checkbox id="useWeb" label="Use Web Search" value={useWeb} onChange={setUseWeb} />
     </Form>
   );
 }
 
-function AnswerDetail(props: { answer: string; context: string; onAskAnother: () => void }) {
-  const markdown = React.useMemo(() => {
-    const parts = [`# Answer`, props.answer, props.context ? `\n---\n## Sources context\n${props.context}` : ""];
-    return parts.filter(Boolean).join("\n\n");
-  }, [props.answer, props.context]);
+function AnswerDetail(props: { answer: string; onAskAnother: () => void }) {
+  const markdown = `# Answer\n\n${props.answer}`;
 
   return (
     <Detail
