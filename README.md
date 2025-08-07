@@ -15,6 +15,12 @@ Chat with your local Ollama models from Raycast, with optional internet search c
 - At least one model pulled in Ollama (e.g., `ollama pull llama3.2`)
 - Optional: Serper.dev API key for web search context
 
+### Get a Serper API Key
+1. Go to `https://serper.dev` and sign in.
+2. Create a project and generate an API key.
+3. In Raycast → Extensions → AI with Internet Search → Preferences, paste the key into `Serper API Key`.
+4. You can toggle web search per chat; without a key, the extension still works locally.
+
 ### Install
 1. Clone this repository.
 2. Install deps: `npm install`
@@ -28,6 +34,11 @@ Chat with your local Ollama models from Raycast, with optional internet search c
    - “Enable/Disable Web Search” to toggle Serper context.
    - “Change Model” to pick from installed Ollama models or enter a custom model name.
    - “Rename Chat”, “New Chat”, “Delete Chat”, “Reset Conversation”, and “Copy Last Answer”.
+
+Screenshots (drop your images in `assets/screenshots/` and update these paths):
+![Chat](assets/screenshots/chat.png)
+![Model Picker](assets/screenshots/model-picker.png)
+![Preferences](assets/screenshots/preferences.png)
 
 ### Preferences
 - `Ollama Base URL` (default: `http://localhost:11434`)
