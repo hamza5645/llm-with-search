@@ -37,6 +37,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
     }
     // Fetch web context first; if no AI access, fall back to showing sources only
     setIsRunning(true);
+    const thinkingToast = await showToast({ style: Toast.Style.Animated, title: "Thinking…" });
 
     try {
       let webContext = "";
@@ -79,8 +80,12 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
       const json = (await res.json()) as { response?: string };
       setAnswer((json.response ?? "").trim());
       // no-op: sources are not displayed
+      thinkingToast.style = Toast.Style.Success;
+      thinkingToast.title = "Answer ready";
     } catch (error: unknown) {
-      await showToast({ style: Toast.Style.Failure, title: "Failed", message: `${error}` });
+      thinkingToast.style = Toast.Style.Failure;
+      thinkingToast.title = "Failed";
+      thinkingToast.message = `${error}`;
     } finally {
       setIsRunning(false);
     }
@@ -99,13 +104,15 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
   }
 
   return (
-    <Form
+    <Form isLoading={isRunning}
       actions={
         <ActionPanel>
-          <Action.SubmitForm
+          <Action
             title={isRunning ? "Running…" : "Ask Llama"}
-            onSubmit={run}
+            onAction={run}
+            shortcut={{ modifiers: [], key: "return" }}
           />
+          <Action.SubmitForm title={isRunning ? "Running…" : "Ask Llama"} onSubmit={run} />
         </ActionPanel>
       }
     >
