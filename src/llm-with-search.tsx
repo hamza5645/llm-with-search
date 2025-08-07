@@ -1,13 +1,4 @@
-import {
-  Action,
-  ActionPanel,
-  Detail,
-  Form,
-  LaunchProps,
-  Toast,
-  getPreferenceValues,
-  showToast,
-} from "@raycast/api";
+import { Action, ActionPanel, LaunchProps, Toast, getPreferenceValues, showToast, List, Icon, LocalStorage, Form, useNavigation } from "@raycast/api";
 import React from "react";
 import searchTool from "./tools/search";
 
@@ -21,54 +12,134 @@ type Preferences = {
   ollamaModel?: string;
 };
 
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+type ChatSession = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+  useWeb: boolean;
+};
+
+function generateId(): string {
+  return `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
   const initialQuery = props.arguments?.query ?? "";
-  const [query, setQuery] = React.useState(initialQuery);
-  const [useWeb, setUseWeb] = React.useState(true);
-  const [isRunning, setIsRunning] = React.useState(false);
-  const [answer, setAnswer] = React.useState<string>("");
-  // remove context state to satisfy linter; not shown in UI anymore
 
-  async function run() {
+  const [chats, setChats] = React.useState<Array<ChatSession>>([]);
+  const [selectedChatId, setSelectedChatId] = React.useState<string | null>(null);
+  const [input, setInput] = React.useState<string>(initialQuery);
+  const [isRunning, setIsRunning] = React.useState<boolean>(false);
+  const programmaticSelectRef = React.useRef<boolean>(false);
+
+  // Load chats from local storage (or initialize one)
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const stored = await LocalStorage.getItem<string>("chats-v1");
+        let parsed: Array<ChatSession> = [];
+        if (stored) parsed = JSON.parse(stored) as Array<ChatSession>;
+        if (parsed.length === 0) {
+          const now = new Date().toISOString();
+          parsed = [
+            { id: generateId(), title: "New Chat", messages: [], createdAt: now, updatedAt: now, useWeb: true },
+          ];
+        }
+        setChats(parsed);
+        programmaticSelectRef.current = true;
+        setSelectedChatId(parsed[0].id);
+        setTimeout(() => {
+          programmaticSelectRef.current = false;
+        }, 150);
+      } catch {
+        const now = new Date().toISOString();
+        const first: ChatSession = {
+          id: generateId(),
+          title: "New Chat",
+          messages: [],
+          createdAt: now,
+          updatedAt: now,
+          useWeb: true,
+        };
+        setChats([first]);
+        programmaticSelectRef.current = true;
+        setSelectedChatId(first.id);
+        setTimeout(() => {
+          programmaticSelectRef.current = false;
+        }, 150);
+      }
+    })();
+  }, []);
+
+  // Persist chats when they change
+  React.useEffect(() => {
+    (async () => {
+      try {
+        await LocalStorage.setItem("chats-v1", JSON.stringify(chats));
+      } catch {
+        // ignore persistence errors
+      }
+    })();
+  }, [chats]);
+
+  const currentChat = React.useMemo(() => {
+    if (chats.length === 0) return null;
+    const byId = chats.find((c) => c.id === selectedChatId);
+    return byId ?? null;
+  }, [chats, selectedChatId]);
+
+  async function sendMessage() {
     if (isRunning) return;
-    if (!query.trim()) {
-      await showToast({ style: Toast.Style.Failure, title: "Enter a question" });
+    const trimmed = input.trim();
+    if (!trimmed) {
+      await showToast({ style: Toast.Style.Failure, title: "Enter a message" });
       return;
     }
-    // Fetch web context first; if no AI access, fall back to showing sources only
+
     setIsRunning(true);
     const thinkingToast = await showToast({ style: Toast.Style.Animated, title: "Thinking…" });
 
     try {
+      // Prepare optional web context
       let webContext = "";
-      if (useWeb) {
+      if (currentChat?.useWeb) {
         try {
-          const resultsJson = await searchTool(query);
+          const resultsJson = await searchTool(trimmed);
           const results = JSON.parse(resultsJson) as Array<{
             title?: string;
             link?: string;
             snippet?: string;
           }>;
-          webContext = results
+          const list = results
             .slice(0, 6)
             .map((r, i) => `- (${i + 1}) ${r.title}\n  ${r.link}\n  ${r.snippet}`)
             .join("\n");
+          if (list) {
+            webContext = `Web results (use if helpful; cite [n] when referencing):\n${list}`;
+          }
         } catch {
-          // Continue without web context on error
+          // Continue without web context
         }
       }
 
-      const promptParts = [webContext ? `${webContext}\n` : "", query];
+      const history = currentChat?.messages ?? [];
+      const nextMessages: ChatMessage[] = [
+        ...history,
+        ...(webContext ? [{ role: "system", content: webContext } as ChatMessage] : []),
+        { role: "user", content: trimmed } as ChatMessage,
+      ];
 
-      // Call local Ollama
       const { ollamaBaseUrl = "http://localhost:11434", ollamaModel = "llama3.2:latest" } =
         getPreferenceValues<Preferences>();
-      const res = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/generate`, {
+      const res = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: ollamaModel,
-          prompt: promptParts.join("\n\n"),
+          messages: nextMessages,
           stream: false,
           options: { temperature: 0.2 },
         }),
@@ -77,9 +148,26 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
         const txt = await res.text();
         throw new Error(`Ollama error ${res.status}: ${txt}`);
       }
-      const json = (await res.json()) as { response?: string };
-      setAnswer((json.response ?? "").trim());
-      // no-op: sources are not displayed
+      const json = (await res.json()) as {
+        message?: { role?: string; content?: string };
+        response?: string;
+      };
+      const assistantText = (json.message?.content ?? json.response ?? "").trim();
+      const updated: ChatMessage[] = [
+        ...history,
+        ...(webContext ? [{ role: "system", content: webContext } as ChatMessage] : []),
+        { role: "user", content: trimmed } as ChatMessage,
+        { role: "assistant", content: assistantText } as ChatMessage,
+      ];
+      setChats((prev) => {
+        const now = new Date().toISOString();
+        return prev.map((c) =>
+          c.id === (currentChat?.id ?? "")
+            ? { ...c, messages: updated, updatedAt: now, title: deriveTitle(c.title, trimmed) }
+            : c
+        );
+      });
+      setInput("");
       thinkingToast.style = Toast.Style.Success;
       thinkingToast.title = "Answer ready";
     } catch (error: unknown) {
@@ -91,50 +179,193 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
     }
   }
 
-  if (answer) {
+  const conversationMarkdown = React.useMemo(() => {
+    if (!currentChat || currentChat.messages.length === 0) {
+      return "";
+    }
+    const parts = [...currentChat.messages].reverse().map((m) => {
+      const who = m.role === "assistant" ? "Assistant" : m.role === "user" ? "User" : "Context";
+      return `## ${who}\n\n${m.content}`;
+    });
+    return parts.join("\n\n");
+  }, [currentChat]);
+
+  const lastAssistantMessage = React.useMemo(() => {
+    if (!currentChat) return "";
+    for (let i = currentChat.messages.length - 1; i >= 0; i--) {
+      if (currentChat.messages[i].role === "assistant") return currentChat.messages[i].content;
+    }
+    return "";
+  }, [currentChat]);
+
+  function newChat() {
+    const now = new Date().toISOString();
+    const chat: ChatSession = {
+      id: generateId(),
+      title: "New Chat",
+      messages: [],
+      createdAt: now,
+      updatedAt: now,
+      useWeb: true,
+    };
+    setChats((prev) => [chat, ...prev]);
+    programmaticSelectRef.current = true;
+    setSelectedChatId(chat.id);
+    setTimeout(() => {
+      programmaticSelectRef.current = false;
+    }, 200);
+    setInput("");
+  }
+
+  function toggleWeb() {
+    if (!currentChat) return;
+    setChats((prev) =>
+      prev.map((c) => (c.id === currentChat.id ? { ...c, useWeb: !c.useWeb, updatedAt: new Date().toISOString() } : c))
+    );
+  }
+
+  function deleteChat() {
+    if (!currentChat) return;
+    setChats((prev) => {
+      const filtered = prev.filter((c) => c.id !== currentChat.id);
+      if (filtered.length === 0) {
+        const now = new Date().toISOString();
+        const first: ChatSession = {
+          id: generateId(),
+          title: "New Chat",
+          messages: [],
+          createdAt: now,
+          updatedAt: now,
+          useWeb: true,
+        };
+        programmaticSelectRef.current = true;
+        setSelectedChatId(first.id);
+        setTimeout(() => {
+          programmaticSelectRef.current = false;
+        }, 150);
+        return [first];
+      }
+      programmaticSelectRef.current = true;
+      setSelectedChatId(filtered[0].id);
+      setTimeout(() => {
+        programmaticSelectRef.current = false;
+      }, 150);
+      return filtered;
+    });
+  }
+
+  function resetConversation() {
+    if (!currentChat) return;
+    setChats((prev) =>
+      prev.map((c) => (c.id === currentChat.id ? { ...c, messages: [], updatedAt: new Date().toISOString() } : c))
+    );
+  }
+
+  function deriveTitle(existing: string, userInput: string): string {
+    if (existing && existing !== "New Chat") return existing;
+    const base = userInput.replace(/\s+/g, " ").trim();
+    return base.length > 60 ? `${base.slice(0, 57)}...` : base || existing || "New Chat";
+  }
+
+  function renameChat(newTitle: string) {
+    if (!currentChat) return;
+    const title = newTitle.trim();
+    if (!title) return;
+    setChats((prev) => prev.map((c) => (c.id === currentChat.id ? { ...c, title, updatedAt: new Date().toISOString() } : c)));
+  }
+
+  function RenameChatForm(props: { initialTitle: string; onSubmit: (title: string) => void }) {
+    const [title, setTitle] = React.useState<string>(props.initialTitle ?? "");
+    const { pop } = useNavigation();
     return (
-      <AnswerDetail
-        answer={answer}
-        onAskAnother={() => {
-          setAnswer("");
-          // reset
-        }}
-      />
+      <Form
+        navigationTitle="Rename Chat"
+        actions={
+          <ActionPanel>
+            <Action.SubmitForm
+              title="Save"
+              onSubmit={() => {
+                props.onSubmit(title);
+                pop();
+              }}
+            />
+          </ActionPanel>
+        }
+      >
+        <Form.TextField id="title" title="Title" value={title} onChange={setTitle} autoFocus />
+      </Form>
     );
   }
 
   return (
-    <Form isLoading={isRunning}
-      actions={
-        <ActionPanel>
-          <Action
-            title={isRunning ? "Running…" : "Ask Llama"}
-            onAction={run}
-            shortcut={{ modifiers: [], key: "return" }}
-          />
-          <Action.SubmitForm title={isRunning ? "Running…" : "Ask Llama"} onSubmit={run} />
-        </ActionPanel>
-      }
+    <List
+      isLoading={isRunning}
+      searchText={input}
+      onSearchTextChange={setInput}
+      navigationTitle="LLM with Search"
+      searchBarPlaceholder="Type a message and press Enter or use Send"
+      selectedItemId={selectedChatId ?? undefined}
+      onSelectionChange={(id) => {
+        if (!id) return;
+        if (programmaticSelectRef.current) return;
+        if (id === selectedChatId) return;
+        setSelectedChatId(id);
+      }}
+      isShowingDetail
+      throttle
     >
-      <Form.TextField id="query" title="Question" placeholder="Ask anything..." value={query} onChange={setQuery} />
-      <Form.Checkbox id="useWeb" label="Use Web Search" value={useWeb} onChange={setUseWeb} />
-    </Form>
-  );
-}
-
-function AnswerDetail(props: { answer: string; onAskAnother: () => void }) {
-  const markdown = `# Answer\n\n${props.answer}`;
-
-  return (
-    <Detail
-      markdown={markdown}
-      navigationTitle="Llm with Search"
-      actions={
-        <ActionPanel>
-          <Action.CopyToClipboard title="Copy to Clipboard" content={props.answer} />
-          <Action title="Ask Another Question" onAction={props.onAskAnother} />
-        </ActionPanel>
-      }
-    />
+      {chats.length === 0 ? (
+        <List.EmptyView title="Start chatting" description="Type a message above." icon={Icon.Message} />
+      ) : (
+        <List.Section title="Chats">
+          {chats.map((chat) => (
+            <List.Item
+              key={chat.id}
+              id={chat.id}
+              title={chat.title || "New Chat"}
+              accessories={[{ tag: chat.useWeb ? "Web: On" : "Web: Off" }]}
+              detail={<List.Item.Detail markdown={chat.id === currentChat?.id ? conversationMarkdown || "" : ""} />}
+              actions={
+                <ActionPanel>
+                  <Action
+                    title={isRunning ? "Sending…" : "Send Message"}
+                    icon={Icon.Airplane}
+                    onAction={sendMessage}
+                    shortcut={{ modifiers: [], key: "return" }}
+                  />
+                  <Action
+                    title={currentChat?.useWeb ? "Disable Web Search" : "Enable Web Search"}
+                    icon={Icon.Globe}
+                    onAction={toggleWeb}
+                    shortcut={{ modifiers: ["cmd"], key: "e" }}
+                  />
+                  <Action.Push
+                    title="Rename Chat"
+                    icon={Icon.Pencil}
+                    shortcut={{ modifiers: ["cmd"], key: "r" }}
+                    target={<RenameChatForm initialTitle={currentChat?.title ?? ""} onSubmit={renameChat} />}
+                  />
+                  <Action title="New Chat" icon={Icon.Plus} onAction={newChat} shortcut={{ modifiers: ["cmd"], key: "n" }} />
+                  <Action
+                    title="Delete Chat"
+                    icon={Icon.Trash}
+                    onAction={deleteChat}
+                    shortcut={{ modifiers: ["cmd"], key: "backspace" }}
+                  />
+                  <Action
+                    title="Reset Conversation"
+                    icon={Icon.RotateAntiClockwise}
+                    onAction={resetConversation}
+                  />
+                  {lastAssistantMessage ? (
+                    <Action.CopyToClipboard title="Copy Last Answer" content={lastAssistantMessage} />
+                  ) : null}
+                </ActionPanel>
+              }
+            />
+          ))}
+        </List.Section>
+      )}
+    </List>
   );
 }
