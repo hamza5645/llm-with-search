@@ -34,56 +34,89 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
   const [input, setInput] = React.useState<string>(initialQuery);
   const [isRunning, setIsRunning] = React.useState<boolean>(false);
   const programmaticSelectRef = React.useRef<boolean>(false);
+  const [hydrated, setHydrated] = React.useState<boolean>(false);
 
   // Load chats from local storage (or initialize one)
   React.useEffect(() => {
     (async () => {
+      const nowIso = new Date().toISOString();
+      const defaultChat: ChatSession = {
+        id: generateId(),
+        title: "New Chat",
+        messages: [],
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        useWeb: true,
+      };
+
+      let parsed: Array<ChatSession> | null = null;
       try {
         const stored = await LocalStorage.getItem<string>("chats-v1");
-        let parsed: Array<ChatSession> = [];
-        if (stored) parsed = JSON.parse(stored) as Array<ChatSession>;
-        if (parsed.length === 0) {
-          const now = new Date().toISOString();
-          parsed = [
-            { id: generateId(), title: "New Chat", messages: [], createdAt: now, updatedAt: now, useWeb: true },
-          ];
+        if (stored) {
+          try {
+            parsed = JSON.parse(stored) as Array<ChatSession>;
+          } catch {
+            // try backup
+            const backup = await LocalStorage.getItem<string>("chats-v1-bak");
+            if (backup) {
+              try {
+                parsed = JSON.parse(backup) as Array<ChatSession>;
+              } catch {
+                parsed = null;
+              }
+            }
+          }
         }
-        setChats(parsed);
-        programmaticSelectRef.current = true;
-        setSelectedChatId(parsed[0].id);
-        setTimeout(() => {
-          programmaticSelectRef.current = false;
-        }, 150);
       } catch {
-        const now = new Date().toISOString();
-        const first: ChatSession = {
-          id: generateId(),
-          title: "New Chat",
-          messages: [],
-          createdAt: now,
-          updatedAt: now,
-          useWeb: true,
-        };
-        setChats([first]);
-        programmaticSelectRef.current = true;
-        setSelectedChatId(first.id);
-        setTimeout(() => {
-          programmaticSelectRef.current = false;
-        }, 150);
+        parsed = null;
       }
+
+      const useChats = parsed && Array.isArray(parsed) && parsed.length > 0 ? parsed : [defaultChat];
+      setChats(useChats);
+
+      let initialId: string | null = null;
+      try {
+        const storedSelected = await LocalStorage.getItem<string>("selectedChatId-v1");
+        initialId = useChats.find((c) => c.id === storedSelected)?.id ?? useChats[0].id;
+      } catch {
+        initialId = useChats[0].id;
+      }
+      programmaticSelectRef.current = true;
+      setSelectedChatId(initialId);
+      setTimeout(() => {
+        programmaticSelectRef.current = false;
+      }, 150);
+      setHydrated(true);
     })();
   }, []);
 
   // Persist chats when they change
   React.useEffect(() => {
+    if (!hydrated) return;
     (async () => {
       try {
-        await LocalStorage.setItem("chats-v1", JSON.stringify(chats));
+        const payload = JSON.stringify(chats);
+        await LocalStorage.setItem("chats-v1", payload);
+        await LocalStorage.setItem("chats-v1-bak", payload);
       } catch {
         // ignore persistence errors
       }
     })();
-  }, [chats]);
+  }, [chats, hydrated]);
+
+  // Persist selected chat id
+  React.useEffect(() => {
+    if (!hydrated) return;
+    (async () => {
+      try {
+        if (selectedChatId) {
+          await LocalStorage.setItem("selectedChatId-v1", selectedChatId);
+        }
+      } catch {
+        // ignore persistence errors
+      }
+    })();
+  }, [selectedChatId, hydrated]);
 
   const currentChat = React.useMemo(() => {
     if (chats.length === 0) return null;
