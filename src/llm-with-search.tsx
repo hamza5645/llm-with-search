@@ -1,6 +1,19 @@
-import { Action, ActionPanel, LaunchProps, Toast, getPreferenceValues, showToast, List, Icon, LocalStorage, Form, useNavigation } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  LaunchProps,
+  Toast,
+  getPreferenceValues,
+  showToast,
+  List,
+  Icon,
+  LocalStorage,
+  Form,
+  useNavigation,
+} from "@raycast/api";
 import React from "react";
 import searchTool from "./tools/search";
+import { listOllamaModels } from "./tools/ollama";
 
 type Arguments = {
   query?: string;
@@ -20,6 +33,7 @@ type ChatSession = {
   createdAt: string;
   updatedAt: string;
   useWeb: boolean;
+  model?: string;
 };
 
 function generateId(): string {
@@ -47,6 +61,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
         createdAt: nowIso,
         updatedAt: nowIso,
         useWeb: true,
+        model: undefined,
       };
 
       let parsed: Array<ChatSession> | null = null;
@@ -167,11 +182,12 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
 
       const { ollamaBaseUrl = "http://localhost:11434", ollamaModel = "llama3.2:latest" } =
         getPreferenceValues<Preferences>();
+      const modelToUse = (currentChat?.model && currentChat.model.trim()) || ollamaModel || "llama3.2:latest";
       const res = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: ollamaModel,
+          model: modelToUse,
           messages: nextMessages,
           stream: false,
           options: { temperature: 0.2 },
@@ -197,7 +213,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
         return prev.map((c) =>
           c.id === (currentChat?.id ?? "")
             ? { ...c, messages: updated, updatedAt: now, title: deriveTitle(c.title, trimmed) }
-            : c
+            : c,
         );
       });
       setInput("");
@@ -240,6 +256,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
       createdAt: now,
       updatedAt: now,
       useWeb: true,
+      model: undefined,
     };
     setChats((prev) => [chat, ...prev]);
     programmaticSelectRef.current = true;
@@ -253,7 +270,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
   function toggleWeb() {
     if (!currentChat) return;
     setChats((prev) =>
-      prev.map((c) => (c.id === currentChat.id ? { ...c, useWeb: !c.useWeb, updatedAt: new Date().toISOString() } : c))
+      prev.map((c) => (c.id === currentChat.id ? { ...c, useWeb: !c.useWeb, updatedAt: new Date().toISOString() } : c)),
     );
   }
 
@@ -290,7 +307,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
   function resetConversation() {
     if (!currentChat) return;
     setChats((prev) =>
-      prev.map((c) => (c.id === currentChat.id ? { ...c, messages: [], updatedAt: new Date().toISOString() } : c))
+      prev.map((c) => (c.id === currentChat.id ? { ...c, messages: [], updatedAt: new Date().toISOString() } : c)),
     );
   }
 
@@ -304,7 +321,9 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
     if (!currentChat) return;
     const title = newTitle.trim();
     if (!title) return;
-    setChats((prev) => prev.map((c) => (c.id === currentChat.id ? { ...c, title, updatedAt: new Date().toISOString() } : c)));
+    setChats((prev) =>
+      prev.map((c) => (c.id === currentChat.id ? { ...c, title, updatedAt: new Date().toISOString() } : c)),
+    );
   }
 
   function RenameChatForm(props: { initialTitle: string; onSubmit: (title: string) => void }) {
@@ -326,6 +345,66 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
         }
       >
         <Form.TextField id="title" title="Title" value={title} onChange={setTitle} autoFocus />
+      </Form>
+    );
+  }
+
+  function ChangeModelForm(props: { initialModel?: string; onSubmit: (model: string | undefined) => void }) {
+    const [loading, setLoading] = React.useState<boolean>(true);
+    const [models, setModels] = React.useState<string[]>([]);
+    const [selection, setSelection] = React.useState<string>(props.initialModel ?? "");
+    const [custom, setCustom] = React.useState<string>(props.initialModel ?? "");
+    const { pop } = useNavigation();
+    React.useEffect(() => {
+      (async () => {
+        try {
+          const { ollamaBaseUrl = "http://localhost:11434" } = getPreferenceValues<Preferences>();
+          const list = await listOllamaModels(ollamaBaseUrl);
+          setModels(list);
+        } catch {
+          setModels([]);
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }, []);
+    return (
+      <Form
+        isLoading={loading}
+        navigationTitle="Change Model"
+        actions={
+          <ActionPanel>
+            <Action.SubmitForm
+              title="Save"
+              onSubmit={() => {
+                const value = selection || custom;
+                props.onSubmit(value.trim() ? value.trim() : undefined);
+                pop();
+              }}
+            />
+          </ActionPanel>
+        }
+      >
+        <Form.Dropdown
+          id="model"
+          title="Installed Models"
+          value={selection}
+          onChange={setSelection}
+          placeholder="Select a model"
+        >
+          <Form.Dropdown.Item value="" title="(Use Default from Preferences)" />
+          {models.map((m) => (
+            <Form.Dropdown.Item key={m} value={m} title={m} />
+          ))}
+        </Form.Dropdown>
+        <Form.Description text="Or type a custom model name (must be pulled in Ollama)." />
+        <Form.TextField
+          id="custom"
+          title="Custom Model"
+          value={custom}
+          onChange={setCustom}
+          placeholder="e.g., llama3.2:latest"
+        />
       </Form>
     );
   }
@@ -356,7 +435,10 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
               key={chat.id}
               id={chat.id}
               title={chat.title || "New Chat"}
-              accessories={[{ tag: chat.useWeb ? "Web: On" : "Web: Off" }]}
+              accessories={[
+                { tag: chat.useWeb ? "Web: On" : "Web: Off" },
+                ...(chat.model ? [{ tag: `Model: ${chat.model}` as const }] : []),
+              ]}
               detail={<List.Item.Detail markdown={chat.id === currentChat?.id ? conversationMarkdown || "" : ""} />}
               actions={
                 <ActionPanel>
@@ -373,23 +455,42 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
                     shortcut={{ modifiers: ["cmd"], key: "e" }}
                   />
                   <Action.Push
+                    title="Change Model"
+                    icon={Icon.Cog}
+                    shortcut={{ modifiers: ["cmd"], key: "m" }}
+                    target={
+                      <ChangeModelForm
+                        initialModel={currentChat?.model}
+                        onSubmit={(model) => {
+                          if (!currentChat) return;
+                          setChats((prev) =>
+                            prev.map((c) =>
+                              c.id === currentChat.id ? { ...c, model, updatedAt: new Date().toISOString() } : c,
+                            ),
+                          );
+                        }}
+                      />
+                    }
+                  />
+                  <Action.Push
                     title="Rename Chat"
                     icon={Icon.Pencil}
                     shortcut={{ modifiers: ["cmd"], key: "r" }}
                     target={<RenameChatForm initialTitle={currentChat?.title ?? ""} onSubmit={renameChat} />}
                   />
-                  <Action title="New Chat" icon={Icon.Plus} onAction={newChat} shortcut={{ modifiers: ["cmd"], key: "n" }} />
+                  <Action
+                    title="New Chat"
+                    icon={Icon.Plus}
+                    onAction={newChat}
+                    shortcut={{ modifiers: ["cmd"], key: "n" }}
+                  />
                   <Action
                     title="Delete Chat"
                     icon={Icon.Trash}
                     onAction={deleteChat}
                     shortcut={{ modifiers: ["cmd"], key: "backspace" }}
                   />
-                  <Action
-                    title="Reset Conversation"
-                    icon={Icon.RotateAntiClockwise}
-                    onAction={resetConversation}
-                  />
+                  <Action title="Reset Conversation" icon={Icon.RotateAntiClockwise} onAction={resetConversation} />
                   {lastAssistantMessage ? (
                     <Action.CopyToClipboard title="Copy Last Answer" content={lastAssistantMessage} />
                   ) : null}

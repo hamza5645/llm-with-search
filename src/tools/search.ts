@@ -1,7 +1,7 @@
 import { getPreferenceValues } from "@raycast/api";
 
 type Preferences = {
-  serperApiKey: string;
+  serperApiKey?: string;
 };
 
 type SerperResult = {
@@ -18,7 +18,8 @@ type SerperResult = {
 export default async function search(query: string): Promise<string> {
   const { serperApiKey } = getPreferenceValues<Preferences>();
   if (!serperApiKey) {
-    throw new Error("Missing Serper API key. Please set `serperApiKey` in the extension preferences.");
+    // Return empty result set when key is missing; caller treats as no web context
+    return JSON.stringify([]);
   }
 
   const response = await fetch("https://google.serper.dev/search", {

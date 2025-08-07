@@ -11,9 +11,9 @@
       "name": "serperApiKey",
       "title": "Serper API Key",
       "type": "password",
-      "required": true,
+      "required": false,
       "placeholder": "sk-...",
-      "description": "Get one from serper.dev and paste it here."
+      "description": "Optional. For web search context via serper.dev."
     },
     {
       "name": "ollamaBaseUrl",
