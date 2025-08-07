@@ -435,10 +435,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
               key={chat.id}
               id={chat.id}
               title={chat.title || "New Chat"}
-              accessories={[
-                { tag: chat.useWeb ? "Web: On" : "Web: Off" },
-                ...(chat.model ? [{ tag: `Model: ${chat.model}` as const }] : []),
-              ]}
+              accessories={[{ tag: chat.useWeb ? "Web: On" : "Web: Off" }]}
               detail={<List.Item.Detail markdown={chat.id === currentChat?.id ? conversationMarkdown || "" : ""} />}
               actions={
                 <ActionPanel>
