@@ -1,6 +1,6 @@
-# LLM with Search
+# AI with Internet Search
 
-Ask your local Ollama models (e.g., Llama 3.2) from Raycast, with optional web search context and inline citations.
+Chat with your local Ollama models from Raycast, with optional internet search context and inline citations.
 
 ### Features
 - Local LLM via Ollama (`/api/chat`)

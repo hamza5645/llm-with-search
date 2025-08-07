@@ -414,7 +414,7 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
       isLoading={isRunning}
       searchText={input}
       onSearchTextChange={setInput}
-      navigationTitle="LLM with Search"
+      navigationTitle="AI with Internet Search"
       searchBarPlaceholder="Type a message and press Enter or use Send"
       selectedItemId={selectedChatId ?? undefined}
       onSelectionChange={(id) => {
