@@ -10,7 +10,7 @@ env:
   # Required: create a classic PAT with 'public_repo' (or 'repo') scope and repo RW on your fork.
   # Save it as repository secret RAYCAST_FORK_PAT
   FORK_OWNER: ${{ vars.RAYCAST_FORK_OWNER || github.repository_owner }}
-  FORK_REPO: ${{ vars.RAYCAST_FORK_REPO || 'extensions' }}
+  FORK_REPO: ${{ vars.RAYCAST_FORK_REPO || 'raycast-extensions' }}
   UPSTREAM_OWNER: raycast
   UPSTREAM_REPO: extensions
   EXTENSION_DIR: extensions/llm-with-search
@@ -62,6 +62,9 @@ jobs:
           git checkout -B "${TARGET_BRANCH}" FETCH_HEAD
           # Add fork as origin for pushing later
           git remote add origin https://x-access-token:${{ secrets.RAYCAST_FORK_PAT }}@github.com/${{ env.FORK_OWNER }}/${{ env.FORK_REPO }}.git
+          # Force git to use PAT for any https://github.com requests from this repo
+          AUTH=$(printf "x-access-token:%s" "${{ secrets.RAYCAST_FORK_PAT }}" | base64 | tr -d '\n')
+          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $AUTH"
 
       - name: Sync files into fork subdirectory
         run: |
