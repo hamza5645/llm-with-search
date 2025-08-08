@@ -67,13 +67,14 @@ jobs:
         run: |
           set -e
           mkdir -p fork-repo/${EXTENSION_DIR}
-          rsync -av --delete \
+          rsync -av --delete --delete-excluded \
             --exclude '.git' \
             --exclude '.github' \
             --exclude 'node_modules' \
             --exclude 'dist' \
             --exclude 'build' \
             --exclude 'raycast-extensions' \
+            --exclude 'fork-repo' \
             ./ fork-repo/${EXTENSION_DIR}/
           cd fork-repo
           git add -A

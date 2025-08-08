@@ -1,6 +1,6 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "ai-with-internet-search",
+  "name": "llm-with-search",
   "title": "AI with Internet Search",
   "description": "Local AI via Ollama with optional internet search context and citations.",
   "icon": "assets/extension-icon.png",
