@@ -1,0 +1,91 @@
+name: Sync to Raycast fork and open PR
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  # Required: create a fine-grained PAT with repo access to your fork and public_repo for upstream
+  # Save it as repository secret RAYCAST_FORK_PAT
+  FORK_OWNER: ${{ vars.RAYCAST_FORK_OWNER || github.repository_owner }}
+  FORK_REPO: ${{ vars.RAYCAST_FORK_REPO || 'extensions' }}
+  UPSTREAM_OWNER: raycast
+  UPSTREAM_REPO: extensions
+  EXTENSION_DIR: extensions/llm-with-search
+  TARGET_BRANCH: sync/llm-with-search
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canonical repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Clone Raycast fork
+        run: |
+          set -e
+          git clone https://x-access-token:${{ secrets.RAYCAST_FORK_PAT }}@github.com/${{ env.FORK_OWNER }}/${{ env.FORK_REPO }}.git fork-repo
+          cd fork-repo
+          git remote add upstream https://github.com/${{ env.UPSTREAM_OWNER }}/${{ env.UPSTREAM_REPO }}.git
+          git fetch upstream
+          # Start branch from latest upstream main to minimize diffs
+          git checkout -B "${TARGET_BRANCH}" upstream/main
+
+      - name: Sync files into fork subdirectory
+        run: |
+          set -e
+          rsync -av --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude 'node_modules' \
+            --exclude 'dist' \
+            --exclude 'build' \
+            --exclude 'raycast-extensions' \
+            ./ fork-repo/${EXTENSION_DIR}/
+          cd fork-repo
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no_changes=true" >> $GITHUB_ENV
+            echo "No changes to commit"
+          else
+            git commit -m "chore: sync llm-with-search from ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
+            git push -f origin "${TARGET_BRANCH}"
+            echo "no_changes=false" >> $GITHUB_ENV
+          fi
+
+      - name: Open or update PR to upstream
+        if: env.no_changes == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.RAYCAST_FORK_PAT }}
+        run: |
+          set -e
+          cd fork-repo
+          PR_NUM=$(gh pr list \
+            --repo "${UPSTREAM_OWNER}/${UPSTREAM_REPO}" \
+            --head "${FORK_OWNER}:${TARGET_BRANCH}" \
+            --state open \
+            --json number \
+            --jq '.[0].number' || true)
+          if [ -z "$PR_NUM" ]; then
+            gh pr create \
+              --repo "${UPSTREAM_OWNER}/${UPSTREAM_REPO}" \
+              --head "${FORK_OWNER}:${TARGET_BRANCH}" \
+              --base main \
+              --title "Add/Update: llm-with-search" \
+              --body "Automated sync from ${GITHUB_REPOSITORY}."
+          else
+            echo "PR already open: #$PR_NUM"
+          fi
