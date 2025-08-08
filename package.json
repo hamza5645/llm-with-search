@@ -3,9 +3,27 @@
   "name": "ai-with-internet-search",
   "title": "AI with Internet Search",
   "description": "Local AI via Ollama with optional internet search context and citations.",
-  "icon": "extension-icon.png",
+  "icon": "assets/extension-icon.png",
   "author": "hamza5645",
   "license": "MIT",
+  "categories": ["ai", "developer-tools"],
+  "commands": [
+    {
+      "name": "llm-with-search",
+      "title": "AI with Internet Search",
+      "subtitle": "Local AI via Ollama + Web Search",
+      "description": "Chat with local AI and optionally add web results with citations.",
+      "mode": "view",
+      "path": "src/llm-with-search.tsx",
+      "arguments": [
+        {
+          "name": "query",
+          "type": "text",
+          "placeholder": "Your question"
+        }
+      ]
+    }
+  ],
   "preferences": [
     {
       "name": "serperApiKey",
@@ -41,23 +59,37 @@
       "description": "Performs a web search using Serper API and returns the results."
     }
   ],
-  "commands": [
-    {
-      "name": "llm-with-search",
-      "title": "AI with Internet Search",
-      "subtitle": "Local AI via Ollama + Web Search",
-      "description": "Chat with local AI and optionally add web results with citations.",
-      "mode": "view",
-      "path": "src/llm-with-search.tsx",
-      "arguments": [
-        {
-          "name": "query",
-          "type": "text",
-          "placeholder": "Your question"
+  "ai": {
+    "evals": {
+      "web_search": {
+        "tool": "search",
+        "description": "Use this tool to search the web when the user requests internet research or citations.",
+        "input": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "query": { "type": "string", "description": "Search query to send to Serper" }
+            },
+            "required": ["query"]
+          }
+        },
+        "output": {
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "link": { "type": "string" },
+                "snippet": { "type": "string" },
+                "source": { "type": "string" }
+              }
+            }
+          }
         }
-      ]
+      }
     }
-  ],
+  },
   "dependencies": {
     "@raycast/api": "^1.102.3",
     "@raycast/utils": "^1.17.0",
@@ -76,7 +108,7 @@
     "dev": "ray develop",
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
-    "prepublishOnly": "echo \"\\n\\nIt seems like you are trying to publish the Raycast extension to npm.\\n\\nIf you did intend to publish it to npm, remove the \\`prepublishOnly\\` script and rerun \\`npm publish\\` again.\\nIf you wanted to publish it to the Raycast Store instead, use \\`npm run publish\\` instead.\\n\\n\" && exit 1",
+    "prepublishOnly": "echo \"\\n\\nIt seems like you are trying to publish the Raycast extension to npm.\\n\\nIf you did intend to publish it to npm, remove the prepublishOnly script and rerun npm publish again.\\nIf you wanted to publish it to the Raycast Store instead, use npm run publish instead.\\n\\n\" && exit 1",
     "publish": "npx @raycast/api@latest publish"
   }
 }

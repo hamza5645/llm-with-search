@@ -28,17 +28,15 @@ Chat with your local Ollama models from Raycast, with optional internet search c
 4. Build: `npm run build`
 
 ### Usage
-1. Open the command in Raycast: “LLM with Search”.
+1. Open the command in Raycast: “AI with Internet Search”.
 2. Type your message and press Enter or use the “Send Message” action.
 3. Use actions:
    - “Enable/Disable Web Search” to toggle Serper context.
    - “Change Model” to pick from installed Ollama models or enter a custom model name.
    - “Rename Chat”, “New Chat”, “Delete Chat”, “Reset Conversation”, and “Copy Last Answer”.
 
-Screenshots (drop your images in `assets/screenshots/` and update these paths):
-![Chat](assets/screenshots/chat.png)
-![Model Picker](assets/screenshots/model-picker.png)
-![Preferences](assets/screenshots/preferences.png)
+### Screenshots
+The extension includes a screenshot in `metadata/screenshot-1.png` used for store submission.
 
 ### Preferences
 - `Ollama Base URL` (default: `http://localhost:11434`)

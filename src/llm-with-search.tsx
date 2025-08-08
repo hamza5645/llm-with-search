@@ -14,6 +14,7 @@ import {
 import React from "react";
 import searchTool from "./tools/search";
 import { listOllamaModels } from "./tools/ollama";
+import { showFailureToast } from "@raycast/utils";
 
 type Arguments = {
   query?: string;
@@ -220,9 +221,10 @@ export default function Command(props: LaunchProps<{ arguments?: Arguments }>) {
       thinkingToast.style = Toast.Style.Success;
       thinkingToast.title = "Answer ready";
     } catch (error: unknown) {
-      thinkingToast.style = Toast.Style.Failure;
-      thinkingToast.title = "Failed";
-      thinkingToast.message = `${error}`;
+      try {
+        await thinkingToast.hide();
+      } catch {}
+      showFailureToast(error, { title: "Failed" });
     } finally {
       setIsRunning(false);
     }
