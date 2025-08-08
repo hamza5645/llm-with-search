@@ -85,7 +85,9 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "chore: sync llm-with-search from ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
-            git push -f origin "${TARGET_BRANCH}"
+            # Use PAT explicitly for push to avoid runner credential overrides
+            git -c http.extraheader="AUTHORIZATION: basic $(printf x-access-token:${{ secrets.RAYCAST_FORK_PAT }} | base64 | tr -d '\n')" \
+              push -f origin "${TARGET_BRANCH}"
             echo "no_changes=false" >> $GITHUB_ENV
           fi
 
