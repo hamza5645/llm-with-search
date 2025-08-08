@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  # Required: create a fine-grained PAT with repo access to your fork and public_repo for upstream
+  # Required: create a classic PAT with 'public_repo' (or 'repo') scope and repo RW on your fork.
   # Save it as repository secret RAYCAST_FORK_PAT
   FORK_OWNER: ${{ vars.RAYCAST_FORK_OWNER || github.repository_owner }}
   FORK_REPO: ${{ vars.RAYCAST_FORK_REPO || 'extensions' }}
@@ -29,24 +29,44 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Preflight config check
+        run: |
+          set -e
+          if [ -z "${{ secrets.RAYCAST_FORK_PAT }}" ]; then
+            echo "Missing secret RAYCAST_FORK_PAT" >&2
+            exit 1
+          fi
+          if [ -z "${FORK_REPO}" ]; then
+            echo "Missing Actions variable RAYCAST_FORK_REPO (your fork repo name, e.g., raycast-extensions or extensions)" >&2
+            exit 1
+          fi
+
       - name: Configure git
         run: |
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - name: Clone Raycast fork
+      - name: Create minimal repo from upstream main (sparse)
         run: |
           set -e
-          git clone https://x-access-token:${{ secrets.RAYCAST_FORK_PAT }}@github.com/${{ env.FORK_OWNER }}/${{ env.FORK_REPO }}.git fork-repo
+          mkdir -p fork-repo
           cd fork-repo
+          git init
           git remote add upstream https://github.com/${{ env.UPSTREAM_OWNER }}/${{ env.UPSTREAM_REPO }}.git
-          git fetch upstream
-          # Start branch from latest upstream main to minimize diffs
-          git checkout -B "${TARGET_BRANCH}" upstream/main
+          # Shallow, blobless fetch of upstream main only
+          git -c protocol.version=2 fetch --depth 1 upstream main
+          # Enable sparse checkout for only the extension directory
+          git sparse-checkout init --cone
+          git sparse-checkout set "${EXTENSION_DIR}"
+          # Start branch from upstream/main with sparse working tree
+          git checkout -B "${TARGET_BRANCH}" FETCH_HEAD
+          # Add fork as origin for pushing later
+          git remote add origin https://x-access-token:${{ secrets.RAYCAST_FORK_PAT }}@github.com/${{ env.FORK_OWNER }}/${{ env.FORK_REPO }}.git
 
       - name: Sync files into fork subdirectory
         run: |
           set -e
+          mkdir -p fork-repo/${EXTENSION_DIR}
           rsync -av --delete \
             --exclude '.git' \
             --exclude '.github' \
@@ -73,12 +93,22 @@ jobs:
         run: |
           set -e
           cd fork-repo
+          # Confirm hub/gh is present, else install gh
+          if ! command -v gh >/dev/null 2>&1; then
+            type -p curl >/dev/null || sudo apt-get update && sudo apt-get install -y curl
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update && sudo apt-get install gh -y
+          fi
+          set +e
           PR_NUM=$(gh pr list \
             --repo "${UPSTREAM_OWNER}/${UPSTREAM_REPO}" \
             --head "${FORK_OWNER}:${TARGET_BRANCH}" \
             --state open \
             --json number \
-            --jq '.[0].number' || true)
+            --jq '.[0].number')
+          set -e
           if [ -z "$PR_NUM" ]; then
             gh pr create \
               --repo "${UPSTREAM_OWNER}/${UPSTREAM_REPO}" \
