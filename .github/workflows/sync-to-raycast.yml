@@ -9,8 +9,6 @@ on:
 env:
   # Required: create a classic PAT with 'public_repo' (or 'repo') scope and repo RW on your fork.
   # Save it as repository secret RAYCAST_FORK_PAT
-  FORK_OWNER: ${{ vars.RAYCAST_FORK_OWNER || github.repository_owner }}
-  FORK_REPO: ${{ vars.RAYCAST_FORK_REPO || 'raycast-extensions' }}
   UPSTREAM_OWNER: raycast
   UPSTREAM_REPO: extensions
   EXTENSION_DIR: extensions/llm-with-search
@@ -28,6 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Preflight config check
         run: |
@@ -36,10 +35,43 @@ jobs:
             echo "Missing secret RAYCAST_FORK_PAT" >&2
             exit 1
           fi
-          if [ -z "${FORK_REPO}" ]; then
-            echo "Missing Actions variable RAYCAST_FORK_REPO (your fork repo name, e.g., raycast-extensions or extensions)" >&2
-            exit 1
+
+      - name: Resolve fork coordinates (owner/repo)
+        env:
+          GH_TOKEN: ${{ secrets.RAYCAST_FORK_PAT }}
+        run: |
+          set -e
+          # Ensure gh is available
+          if ! command -v gh >/dev/null 2>&1; then
+            type -p curl >/dev/null || { sudo apt-get update && sudo apt-get install -y curl; }
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update && sudo apt-get install gh -y
           fi
+
+          # Prefer repo variables if provided, otherwise infer from PAT and common fork names
+          FORK_OWNER="${{ vars.RAYCAST_FORK_OWNER }}"
+          FORK_REPO="${{ vars.RAYCAST_FORK_REPO }}"
+
+          if [ -z "$FORK_OWNER" ]; then
+            FORK_OWNER="$(gh api user -q .login)"
+          fi
+
+          if [ -z "$FORK_REPO" ]; then
+            if gh repo view "$FORK_OWNER/extensions" >/dev/null 2>&1; then
+              FORK_REPO="extensions"
+            elif gh repo view "$FORK_OWNER/raycast-extensions" >/dev/null 2>&1; then
+              FORK_REPO="raycast-extensions"
+            else
+              echo "Could not determine fork repo. Set repository variable RAYCAST_FORK_REPO (e.g., 'extensions' or 'raycast-extensions')." >&2
+              exit 1
+            fi
+          fi
+
+          echo "Using fork: $FORK_OWNER/$FORK_REPO"
+          echo "FORK_OWNER=$FORK_OWNER" >> $GITHUB_ENV
+          echo "FORK_REPO=$FORK_REPO" >> $GITHUB_ENV
 
       - name: Configure git
         run: |
@@ -61,7 +93,7 @@ jobs:
           # Start branch from upstream/main with sparse working tree
           git checkout -B "${TARGET_BRANCH}" FETCH_HEAD
           # Add fork as origin for pushing later using PAT as password (fine-grained compatible)
-          git remote add origin https://$FORK_OWNER:${{ secrets.RAYCAST_FORK_PAT }}@github.com/${{ env.FORK_OWNER }}/${{ env.FORK_REPO }}.git
+          git remote add origin https://$FORK_OWNER:${{ secrets.RAYCAST_FORK_PAT }}@github.com/$FORK_OWNER/$FORK_REPO.git
 
       - name: Sync files into fork subdirectory
         run: |
