@@ -135,21 +135,35 @@ jobs:
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
             sudo apt-get update && sudo apt-get install gh -y
           fi
-          set +e
-          PR_NUM=$(gh pr list \
-            --repo "${UPSTREAM_OWNER}/${UPSTREAM_REPO}" \
-            --head "${FORK_OWNER}:${TARGET_BRANCH}" \
-            --state open \
-            --json number \
-            --jq '.[0].number')
-          set -e
-          if [ -z "$PR_NUM" ]; then
+          # Detect existing PR via REST to avoid false negatives with --head
+          PR_NUM=$(gh api -X GET repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls \
+            -f head="${FORK_OWNER}:${TARGET_BRANCH}" \
+            -f state=open \
+            --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$PR_NUM" ]; then
+            echo "PR already open: #$PR_NUM"
+          else
+            # Create PR; if it races and already exists, treat as success
+            set +e
             gh pr create \
               --repo "${UPSTREAM_OWNER}/${UPSTREAM_REPO}" \
               --head "${FORK_OWNER}:${TARGET_BRANCH}" \
               --base main \
               --title "Add/Update: llm-with-search" \
               --body "Automated sync from ${GITHUB_REPOSITORY}."
-          else
-            echo "PR already open: #$PR_NUM"
+            status=$?
+            set -e
+            if [ $status -ne 0 ]; then
+              # Retry detection; if now present, consider success
+              PR_NUM=$(gh api -X GET repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/pulls \
+                -f head="${FORK_OWNER}:${TARGET_BRANCH}" \
+                -f state=open \
+                --jq '.[0].number' 2>/dev/null || true)
+              if [ -n "$PR_NUM" ]; then
+                echo "PR already open: #$PR_NUM"
+              else
+                echo "Failed to create PR and none found." >&2
+                exit 1
+              fi
+            fi
           fi
