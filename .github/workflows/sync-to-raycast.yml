@@ -60,11 +60,8 @@ jobs:
           git sparse-checkout set "${EXTENSION_DIR}"
           # Start branch from upstream/main with sparse working tree
           git checkout -B "${TARGET_BRANCH}" FETCH_HEAD
-          # Add fork as origin for pushing later
-          git remote add origin https://x-access-token:${{ secrets.RAYCAST_FORK_PAT }}@github.com/${{ env.FORK_OWNER }}/${{ env.FORK_REPO }}.git
-          # Force git to use PAT for any https://github.com requests from this repo
-          AUTH=$(printf "x-access-token:%s" "${{ secrets.RAYCAST_FORK_PAT }}" | base64 | tr -d '\n')
-          git config http.https://github.com/.extraheader "AUTHORIZATION: basic $AUTH"
+          # Add fork as origin for pushing later using PAT as password (fine-grained compatible)
+          git remote add origin https://$FORK_OWNER:${{ secrets.RAYCAST_FORK_PAT }}@github.com/${{ env.FORK_OWNER }}/${{ env.FORK_REPO }}.git
 
       - name: Sync files into fork subdirectory
         run: |
@@ -86,8 +83,7 @@ jobs:
           else
             git commit -m "chore: sync llm-with-search from ${GITHUB_REPOSITORY}@${GITHUB_SHA}"
             # Use PAT explicitly for push to avoid runner credential overrides
-            git -c http.extraheader="AUTHORIZATION: basic $(printf x-access-token:${{ secrets.RAYCAST_FORK_PAT }} | base64 | tr -d '\n')" \
-              push -f origin "${TARGET_BRANCH}"
+            git push -f origin "${TARGET_BRANCH}"
             echo "no_changes=false" >> $GITHUB_ENV
           fi
 
